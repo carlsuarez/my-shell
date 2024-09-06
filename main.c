@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <ncurses.h>
 #include <string.h>
@@ -6,6 +5,7 @@
 #define INITIAL_CAPACITY 64 // Start with a reasonably large buffer
 #define RESIZE_FACTOR 2     // Double the size when reallocating
 #define SHELL "my-shell$ "
+#define ENTER 10
 #define CTRL_Q 17
 
 // Define string
@@ -17,11 +17,20 @@ typedef struct
     size_t cursor;
 } string;
 
+typedef struct
+{
+    char *data[32]; // Store 32 previous commands
+    size_t length;
+} strings;
+
 // Prototypes
 void resize_string(string *cmd);
+void reset_command(string *cmd);
 void handle_input(string *cmd, int ch);
 void handle_backspace(string *cmd);
 void update_display(const string *cmd, size_t line);
+void add_to_history(strings *history, string *cmd);
+void get_from_history(strings *history, string *cmd, int index);
 
 int main()
 {
@@ -32,18 +41,24 @@ int main()
 
     size_t line = 0;
 
+    // Initialize history
+    strings command_his;
+    command_his.length = 0;
+
     // Initialize the command
     string command;
     command.capacity = INITIAL_CAPACITY;
     command.length = 0;
     command.cursor = 0;
     command.data = (char *)malloc(command.capacity * sizeof(char));
+    // Check that malloc worked
     if (!command.data)
     {
         perror("malloc");
         exit(EXIT_FAILURE);
     }
 
+    int history_index = -1; // To track history navigation
     bool QUIT = false;
     while (!QUIT)
     {
@@ -56,10 +71,21 @@ int main()
         case CTRL_Q:
             QUIT = true;
             break;
-        case KEY_ENTER:
-            command.data[command.length] = '\0'; // Null-terminate the string
+        case ENTER:
+
+            // Add command to history
+            if (command.length > 0)
+            {
+                add_to_history(&command_his, &command);
+            }
+
+            // Move to the next line
             line++;
-            command.cursor = command.length; // Move cursor to the end of the command
+
+            // Reset the command object
+            reset_command(&command);
+
+            history_index = -1; // Reset history navigation
             break;
         case KEY_LEFT:
             if (command.cursor > 0)
@@ -74,8 +100,27 @@ int main()
             }
             break;
         case KEY_BACKSPACE:
-        case 127: // 127 is often the ASCII value for backspace
             handle_backspace(&command);
+            break;
+        case KEY_UP:
+            if (command_his.length > 0 && history_index < (int)(command_his.length - 1))
+            {
+                history_index++;
+                get_from_history(&command_his, &command, command_his.length - 1 - history_index);
+            }
+            break;
+        case KEY_DOWN:
+            if (history_index > 0)
+            {
+                history_index--;
+                get_from_history(&command_his, &command, command_his.length - 1 - history_index);
+            }
+            else if (history_index == 0)
+            {
+                history_index--;
+                memset(command.data, 0, command.length); // Clear command if at the bottom of history
+                command.length = 0;
+            }
             break;
         default:
             if (ch >= 32 && ch <= 126)
@@ -88,11 +133,10 @@ int main()
         update_display(&command, line);
     }
 
-    mvprintw(line, 0, "Exiting...\n");
+    mvprintw(line + 1, 0, "Exiting...\n");
     refresh();
     endwin(); // End ncurses mode
 
-    free(command.data);
     return 0;
 }
 
@@ -108,6 +152,27 @@ void resize_string(string *cmd)
         exit(EXIT_FAILURE);
     }
     cmd->data = new_data;
+}
+
+// Function to reset the cmd after enter is pressed
+void reset_command(string *cmd)
+{
+    // Clear command data
+    memset(cmd->data, 0, cmd->capacity); // Use cmd->capacity to avoid overstepping bounds
+
+    // Reset size and cursor
+    cmd->length = 0;
+    cmd->cursor = 0;
+
+    // Attempt to shrink the buffer back to INITIAL_CAPACITY
+    char *new_data = realloc(cmd->data, INITIAL_CAPACITY * sizeof(char));
+    if (!new_data)
+    {
+        perror("realloc");
+        exit(EXIT_FAILURE);
+    }
+    cmd->data = new_data;
+    cmd->capacity = INITIAL_CAPACITY;
 }
 
 // Function to handle input and insert it into the command buffer
@@ -144,9 +209,6 @@ void handle_backspace(string *cmd)
 // Function to update the display with the current command
 void update_display(const string *cmd, size_t line)
 {
-    move(line, 0); // Move to the start of the line
-    clrtoeol();    // Clear to end of line
-
     // Print the shell prompt and command
     mvprintw(line, 0, SHELL "%s", cmd->data);
 
@@ -155,4 +217,38 @@ void update_display(const string *cmd, size_t line)
 
     // Refresh to apply changes
     refresh();
+}
+
+// Function to store the command into history
+void add_to_history(strings *history, string *cmd)
+{
+    if (history->length < 32)
+    {
+        history->data[history->length] = (char *)malloc((cmd->length + 1) * sizeof(char)); // Allocate space for the command
+        strcpy(history->data[history->length], cmd->data);                                 // Copy the command string
+        history->length++;
+    }
+    else
+    {
+        // Free the oldest history entry
+        free(history->data[0]);
+
+        // Shift the history up by one
+        memmove(&history->data[0], &history->data[1], 31 * sizeof(char *));
+
+        // Allocate space for the new command
+        history->data[31] = (char *)malloc((cmd->length + 1) * sizeof(char));
+        strcpy(history->data[31], cmd->data);
+    }
+}
+
+// Function to copy command from history
+void get_from_history(strings *history, string *cmd, int index)
+{
+    if (index >= 0 && index < history->length)
+    {
+        strcpy(cmd->data, history->data[index]);    // Copy the command from history to the current command buffer
+        cmd->length = strlen(history->data[index]); // Set the correct length
+        cmd->cursor = cmd->length;                  // Move cursor to end
+    }
 }
