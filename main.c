@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <ncurses.h>
+#include <time.h>
 #include <string.h>
 
 #define INITIAL_CAPACITY 64
@@ -37,11 +38,12 @@ void execute_about();
 void execute_greet(char *name);
 void execute_clear();
 void execute_echo();
+void execute_time();
 
 // Global variable
 static size_t line = 0;
 
-int main()
+int main(void)
 {
     initscr();            // Initialize ncurses
     raw();                // Disable line buffering
@@ -91,6 +93,10 @@ int main()
                 else if (strcmp("echo", token) == 0)
                 {
                     execute_echo();
+                }
+                else if (strcmp("time", token) == 0)
+                {
+                    execute_time();
                 }
                 else
                 {
@@ -277,4 +283,30 @@ void execute_echo()
     {
         printw(" %s", token);
     }
+}
+
+void execute_time()
+{
+    // Get the current time
+    time_t current_time = time(NULL);
+
+    // Check if the time retrieval was successful
+    if (current_time == -1)
+    {
+        mvprintw(++line, 0, "Failed to get the current time.");
+        return;
+    }
+
+    // Convert to local time format
+    struct tm *local_time = localtime(&current_time);
+    if (!local_time)
+    {
+        mvprintw(++line, 0, "Failed to convert to local time.");
+        return;
+    }
+
+    // Format and print the time
+    char time_str[64];
+    strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", local_time);
+    mvprintw(++line, 0, "Current date/time: %s", time_str);
 }
