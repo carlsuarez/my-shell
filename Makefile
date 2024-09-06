@@ -28,7 +28,7 @@ $(BUILD_DIR)/%.o: %.c
 
 # Clean up compiled files
 clean:
-	rm -f $(BUILD_DIR)/*.o $(EXEC)
+	rm -rf $(BUILD_DIR)
 
 # Phony targets (not files)
 .PHONY: all clean

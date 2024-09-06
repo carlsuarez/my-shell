@@ -1,312 +1,207 @@
 #include <stdlib.h>
-#include <ncurses.h>
-#include <time.h>
 #include <string.h>
+#include <ncurses.h>
+#include "commands.h"
 
-#define INITIAL_CAPACITY 64
-#define RESIZE_FACTOR 2
-#define SHELL "my-shell$ "
-#define ENTER 10
-#define CTRL_Q 17
+#define SHELL_PROMPT "my-shell$ "
+#define MAX_INPUT 256
 #define MAX_HISTORY 32
+#define KEY_ESC 27
 
-typedef struct
-{
-    char *data;
-    size_t length;
-    size_t capacity;
-    size_t cursor;
-} string;
+// Global variables
+WINDOW *output_win;
+size_t line;
 
+// Structure to hold command history
 typedef struct
 {
     char *data[MAX_HISTORY];
     size_t length;
-} strings;
+} History;
 
 // Prototypes
-void resize_string(string *cmd);
-void reset_command(string *cmd);
-void handle_input(string *cmd, int ch);
-void handle_backspace(string *cmd);
-void update_display(const string *cmd);
-void add_to_history(strings *history, const string *cmd);
-void get_from_history(strings *history, string *cmd, int index);
-
-// Commands
-void execute_about();
-void execute_greet(char *name);
-void execute_clear();
-void execute_echo();
-void execute_time();
-
-// Global variable
-static size_t line = 0;
+void init_ncurses();
+void add_to_history(History *history, const char *command);
 
 int main(void)
 {
-    initscr();            // Initialize ncurses
-    raw();                // Disable line buffering
-    keypad(stdscr, TRUE); // Enable function keys
-    noecho();             // Disable echo of input
+    // Initialize the ncurses window
+    init_ncurses();
+    History history = {0};
+    char input_buffer[MAX_INPUT];
+    int ch;
+    int history_index = -1; // Index for history navigation
 
-    strings command_his = {0}; // Initialize history
-    string command = {malloc(INITIAL_CAPACITY * sizeof(char)), 0, INITIAL_CAPACITY, 0};
-
-    if (!command.data)
+    while (1)
     {
-        perror("malloc");
-        exit(EXIT_FAILURE);
-    }
+        mvwprintw(output_win, line, 0, SHELL_PROMPT);
+        wrefresh(output_win); // Refresh to show the prompt
 
-    int history_index = -1;
-    bool QUIT = false;
-
-    while (!QUIT)
-    {
-        mvprintw(line, 0, SHELL);  // Print the shell prompt
-        move(line, strlen(SHELL)); // Move the cursor after the prompt
-
-        int ch = getch();
-        switch (ch)
+        // Read input from user
+        memset(input_buffer, 0, sizeof(input_buffer));
+        int index = 0;
+        while ((ch = wgetch(output_win)) != '\n') // Read until Enter key
         {
-        case CTRL_Q:
-            QUIT = true;
-            break;
-        case ENTER:
-            if (command.length > 0)
+            switch (ch)
             {
-                char *token = strtok(command.data, " ");
+            case KEY_F(1):
+                // Exit shell
+                endwin(); // End ncurses mode
 
-                if (strcmp("about", token) == 0)
+                // Free allocated memory for history
+                for (size_t i = 0; i < history.length; ++i)
                 {
-                    execute_about();
+                    free(history.data[i]);
                 }
-                else if (strcmp("greet", token) == 0)
+                return 0;
+
+            case KEY_BACKSPACE:
+                // Delete a character
+                if (index > 0)
                 {
-                    execute_greet(strtok(NULL, " "));
+                    index--;
+                    mvwaddch(output_win, line, index + strlen(SHELL_PROMPT), ' ');
+                    wmove(output_win, line, index + strlen(SHELL_PROMPT));
                 }
-                else if (strcmp("clear", token) == 0)
+                break;
+
+            case KEY_UP:
+                // Navigate through the command history
+                if (history.length > 0 && history_index > 0)
                 {
-                    execute_clear();
+                    history_index--;
+                    // Clear the line before displaying the previous command
+                    wmove(output_win, line, strlen(SHELL_PROMPT));
+                    wclrtoeol(output_win); // Clear from cursor to the end of the line
+
+                    strcpy(input_buffer, history.data[history_index]);
+                    index = strlen(input_buffer);
+                    mvwprintw(output_win, line, strlen(SHELL_PROMPT), "%s", input_buffer);
+                    wmove(output_win, line, strlen(SHELL_PROMPT) + index);
                 }
-                else if (strcmp("echo", token) == 0)
+                break;
+
+            case KEY_DOWN:
+                // Navigate through the command history
+                if (history.length > 0 && history_index < history.length - 1)
                 {
-                    execute_echo();
-                }
-                else if (strcmp("time", token) == 0)
-                {
-                    execute_time();
+                    history_index++;
+                    // Clear the line before displaying the next command
+                    wmove(output_win, line, strlen(SHELL_PROMPT));
+                    wclrtoeol(output_win);
+
+                    strcpy(input_buffer, history.data[history_index]);
+                    index = strlen(input_buffer);
+                    mvwprintw(output_win, line, strlen(SHELL_PROMPT), "%s", input_buffer);
+                    wmove(output_win, line, strlen(SHELL_PROMPT) + index);
                 }
                 else
                 {
-                    mvprintw(++line, 0, "`%s` command is unknown! Type `help` for a list of valid commands.", token);
+                    // Clear the input when there are no more history items to show
+                    history_index = history.length;
+                    input_buffer[0] = '\0';
+                    wmove(output_win, line, strlen(SHELL_PROMPT));
+                    wclrtoeol(output_win);
                 }
-                add_to_history(&command_his, &command);
+                break;
+            case KEY_ESC:
+                // Clear the line
+                index = 0;
+                wmove(output_win, line, strlen(SHELL_PROMPT));
+                wclrtoeol(output_win);
+            default:
+                if (ch >= 32 && ch <= 126)
+                { // Handle printable characters
+                    if (index < MAX_INPUT - 1)
+                    {
+                        input_buffer[index++] = ch;
+                        mvwaddch(output_win, line, index + strlen(SHELL_PROMPT) - 1, ch);
+                    }
+                }
+                break;
             }
-            reset_command(&command);
-            history_index = -1;
-            line++;
-            break;
-        case KEY_LEFT:
-            if (command.cursor > 0)
-                command.cursor--;
-            break;
-        case KEY_RIGHT:
-            if (command.cursor < command.length)
-                command.cursor++;
-            break;
-        case KEY_BACKSPACE:
-            handle_backspace(&command);
-            break;
-        case KEY_UP:
-            if (command_his.length > 0 && history_index < (int)(command_his.length - 1))
-            {
-                history_index++;
-                get_from_history(&command_his, &command, command_his.length - 1 - history_index);
-            }
-            break;
-        case KEY_DOWN:
-            if (history_index > 0)
-            {
-                history_index--;
-                get_from_history(&command_his, &command, command_his.length - 1 - history_index);
-            }
-            else if (history_index == 0)
-            {
-                history_index--;
-                reset_command(&command);
-            }
-            break;
-        default:
-            if (ch >= 32 && ch <= 126)
-            {
-                handle_input(&command, ch);
-            }
-            break;
+        }
+        input_buffer[index] = '\0'; // Null-terminate the string
+
+        if (index > 0) // Add to history only if there is input
+        {
+            add_to_history(&history, input_buffer);
+            history_index = history.length; // Set to end of history
         }
 
-        update_display(&command);
+        // Process command
+        char *token = strtok(input_buffer, " ");
+        if (token)
+        {
+            if (strcmp("about", token) == 0)
+            {
+                execute_about();
+            }
+            else if (strcmp("greet", token) == 0)
+            {
+                execute_greet(strtok(NULL, " "));
+            }
+            else if (strcmp("clear", token) == 0)
+            {
+                execute_clear();
+            }
+            else if (strcmp("echo", token) == 0)
+            {
+                execute_echo(strtok(NULL, ""));
+            }
+            else if (strcmp("time", token) == 0)
+            {
+                execute_time();
+            }
+            else
+            {
+                mvwprintw(output_win, ++line, 0, "`%s` command is unknown! Type `help` for a list of valid commands.", token);
+            }
+        }
+
+        line++;
+        wrefresh(output_win); // Refresh window to show updates
     }
-
-    mvprintw(++line, 0, "Exiting...\n");
-    refresh();
-    endwin(); // End ncurses mode
-
-    free(command.data); // Free allocated memory for command data
-    for (size_t i = 0; i < command_his.length; ++i)
-    {
-        free(command_his.data[i]); // Free history data
-    }
-
-    return 0;
 }
 
-// Resize the command buffer when necessary
-void resize_string(string *cmd)
+void init_ncurses()
 {
-    cmd->capacity *= RESIZE_FACTOR;
-    char *new_data = realloc(cmd->data, cmd->capacity * sizeof(char));
-    if (!new_data)
+    // Initialize ncurses
+    initscr();
+    if (stdscr == NULL)
     {
-        perror("realloc");
-        free(cmd->data);
+        perror("Error initializing ncurses");
         exit(EXIT_FAILURE);
     }
-    cmd->data = new_data;
-}
 
-// Reset command string and shrink buffer if needed
-void reset_command(string *cmd)
-{
-    memset(cmd->data, 0, cmd->length);
-    cmd->length = 0;
-    cmd->cursor = 0;
-    char *new_data = realloc(cmd->data, INITIAL_CAPACITY * sizeof(char));
-    if (!new_data)
+    cbreak();
+    noecho();
+
+    // Create a new window
+    output_win = newwin(LINES - 1, COLS, 0, 0); // Create a window with screen size minus 1 row
+    if (output_win == NULL)
     {
-        perror("realloc");
+        perror("Error creating new window");
+        endwin();
         exit(EXIT_FAILURE);
     }
-    cmd->data = new_data;
-    cmd->capacity = INITIAL_CAPACITY;
+
+    keypad(output_win, TRUE);
+    scrollok(output_win, TRUE); // Allow scrolling in the window
+    wrefresh(output_win);       // Refresh to show the window
 }
 
-// Insert input character at the cursor position
-void handle_input(string *cmd, int ch)
-{
-    if (cmd->length + 1 >= cmd->capacity)
-    {
-        resize_string(cmd);
-    }
-    memmove(cmd->data + cmd->cursor + 1, cmd->data + cmd->cursor, cmd->length - cmd->cursor);
-    cmd->data[cmd->cursor++] = ch;
-    cmd->length++;
-}
-
-// Handle backspace key
-void handle_backspace(string *cmd)
-{
-    if (cmd->cursor > 0)
-    {
-        memmove(cmd->data + cmd->cursor - 1, cmd->data + cmd->cursor, cmd->length - cmd->cursor);
-        cmd->length--;
-        cmd->cursor--;
-        cmd->data[cmd->length] = '\0'; // Null-terminate the string
-    }
-}
-
-// Update display with current command
-void update_display(const string *cmd)
-{
-    mvprintw(line, 0, SHELL);                       // Print the shell prompt
-    clrtoeol();                                     // Clear the line from the cursor to the end
-    mvprintw(line, strlen(SHELL), "%s", cmd->data); // Print the current command
-    move(line, strlen(SHELL) + cmd->cursor);        // Move cursor to the correct position
-    refresh();
-}
-
-// Add a command to history
-void add_to_history(strings *history, const string *cmd)
+void add_to_history(History *history, const char *command)
 {
     if (history->length < MAX_HISTORY)
     {
-        history->data[history->length] = strdup(cmd->data);
+        history->data[history->length] = strdup(command);
         history->length++;
     }
     else
     {
         free(history->data[0]);
         memmove(&history->data[0], &history->data[1], (MAX_HISTORY - 1) * sizeof(char *));
-        history->data[MAX_HISTORY - 1] = strdup(cmd->data);
+        history->data[MAX_HISTORY - 1] = strdup(command);
     }
-}
-
-// Retrieve command from history
-void get_from_history(strings *history, string *cmd, int index)
-{
-    if (index >= 0 && index < (int)history->length)
-    {
-        strcpy(cmd->data, history->data[index]);
-        cmd->length = strlen(history->data[index]);
-        cmd->cursor = cmd->length;
-    }
-}
-
-// Command implementations
-void execute_about()
-{
-    mvprintw(++line, 0, "Welcome to my-shell. A simple shell for beginners!");
-}
-
-void execute_greet(char *name)
-{
-    mvprintw(++line, 0, "Hello, %s", name ? name : "John Doe (please provide a name after `greet`)");
-}
-
-void execute_clear()
-{
-    line = -1;
-    clear();
-}
-
-void execute_echo()
-{
-    char *token = strtok(NULL, " ");
-    if (!token)
-    {
-        mvprintw(++line, 0, "*cricket noises*");
-        return;
-    }
-    mvprintw(++line, 0, "%s", token);
-    while ((token = strtok(NULL, " ")))
-    {
-        printw(" %s", token);
-    }
-}
-
-void execute_time()
-{
-    // Get the current time
-    time_t current_time = time(NULL);
-
-    // Check if the time retrieval was successful
-    if (current_time == -1)
-    {
-        mvprintw(++line, 0, "Failed to get the current time.");
-        return;
-    }
-
-    // Convert to local time format
-    struct tm *local_time = localtime(&current_time);
-    if (!local_time)
-    {
-        mvprintw(++line, 0, "Failed to convert to local time.");
-        return;
-    }
-
-    // Format and print the time
-    char time_str[64];
-    strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", local_time);
-    mvprintw(++line, 0, "Current date/time: %s", time_str);
 }
