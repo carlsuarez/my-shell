@@ -1,9 +1,8 @@
-#include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
 #include <ncurses.h>
 #include "commands.h"
 
-#define SHELL_PROMPT "my-shell$ "
 #define MAX_INPUT 256
 #define MAX_HISTORY 32
 #define KEY_ESC 27
@@ -22,11 +21,14 @@ typedef struct
 // Prototypes
 void init_ncurses();
 void add_to_history(History *history, const char *command);
+char *get_shell_prompt();
 
 int main(void)
 {
     // Initialize the ncurses window
     init_ncurses();
+
+    chdir("/home/cj-suarez");
     History history = {0};
     char input_buffer[MAX_INPUT];
     int ch;
@@ -34,7 +36,8 @@ int main(void)
 
     while (1)
     {
-        mvwprintw(output_win, line, 0, SHELL_PROMPT);
+
+        mvwprintw(output_win, line, 0, "%s", get_shell_prompt());
         wrefresh(output_win); // Refresh to show the prompt
 
         // Read input from user
@@ -60,8 +63,8 @@ int main(void)
                 if (index > 0)
                 {
                     index--;
-                    mvwaddch(output_win, line, index + strlen(SHELL_PROMPT), ' ');
-                    wmove(output_win, line, index + strlen(SHELL_PROMPT));
+                    mvwaddch(output_win, line, index + strlen(get_shell_prompt()), ' ');
+                    wmove(output_win, line, index + strlen(get_shell_prompt()));
                 }
                 break;
 
@@ -71,13 +74,13 @@ int main(void)
                 {
                     history_index--;
                     // Clear the line before displaying the previous command
-                    wmove(output_win, line, strlen(SHELL_PROMPT));
+                    wmove(output_win, line, strlen(get_shell_prompt()));
                     wclrtoeol(output_win); // Clear from cursor to the end of the line
 
                     strcpy(input_buffer, history.data[history_index]);
                     index = strlen(input_buffer);
-                    mvwprintw(output_win, line, strlen(SHELL_PROMPT), "%s", input_buffer);
-                    wmove(output_win, line, strlen(SHELL_PROMPT) + index);
+                    mvwprintw(output_win, line, strlen(get_shell_prompt()), "%s", input_buffer);
+                    wmove(output_win, line, strlen(get_shell_prompt()) + index);
                 }
                 break;
 
@@ -87,27 +90,27 @@ int main(void)
                 {
                     history_index++;
                     // Clear the line before displaying the next command
-                    wmove(output_win, line, strlen(SHELL_PROMPT));
+                    wmove(output_win, line, strlen(get_shell_prompt()));
                     wclrtoeol(output_win);
 
                     strcpy(input_buffer, history.data[history_index]);
                     index = strlen(input_buffer);
-                    mvwprintw(output_win, line, strlen(SHELL_PROMPT), "%s", input_buffer);
-                    wmove(output_win, line, strlen(SHELL_PROMPT) + index);
+                    mvwprintw(output_win, line, strlen(get_shell_prompt()), "%s", input_buffer);
+                    wmove(output_win, line, strlen(get_shell_prompt()) + index);
                 }
                 else
                 {
                     // Clear the input when there are no more history items to show
                     history_index = history.length;
                     input_buffer[0] = '\0';
-                    wmove(output_win, line, strlen(SHELL_PROMPT));
+                    wmove(output_win, line, strlen(get_shell_prompt()));
                     wclrtoeol(output_win);
                 }
                 break;
             case KEY_ESC:
                 // Clear the line
                 index = 0;
-                wmove(output_win, line, strlen(SHELL_PROMPT));
+                wmove(output_win, line, strlen(get_shell_prompt()));
                 wclrtoeol(output_win);
             default:
                 if (ch >= 32 && ch <= 126)
@@ -115,7 +118,7 @@ int main(void)
                     if (index < MAX_INPUT - 1)
                     {
                         input_buffer[index++] = ch;
-                        mvwaddch(output_win, line, index + strlen(SHELL_PROMPT) - 1, ch);
+                        mvwaddch(output_win, line, index + strlen(get_shell_prompt()) - 1, ch);
                     }
                 }
                 break;
@@ -152,6 +155,14 @@ int main(void)
             else if (strcmp("time", token) == 0)
             {
                 execute_time();
+            }
+            else if (strcmp("cd", token) == 0)
+            {
+                chdir(strtok(NULL, " "));
+            }
+            else if (strcmp("pwd", token) == 0)
+            {
+                mvwprintw(output_win, ++line, 0, "%s", getcwd(NULL, 0));
             }
             else
             {
@@ -204,4 +215,18 @@ void add_to_history(History *history, const char *command)
         memmove(&history->data[0], &history->data[1], (MAX_HISTORY - 1) * sizeof(char *));
         history->data[MAX_HISTORY - 1] = strdup(command);
     }
+}
+
+char *get_shell_prompt()
+{
+    char *cwd = getcwd(NULL, 0);
+    if (cwd == NULL)
+    {
+        return "my-shell $ "; // fallback in case getcwd fails
+    }
+
+    char *prompt = malloc(256);
+    snprintf(prompt, sizeof(prompt), "my-shell %s$ ", cwd);
+    free(cwd); // free the memory allocated by getcwd
+    return prompt;
 }

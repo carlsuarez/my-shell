@@ -1,7 +1,3 @@
-#include <stdlib.h>
-#include <string.h>
-#include <ncurses.h>
-#include <time.h>
 #include "commands.h"
 
 void execute_about()

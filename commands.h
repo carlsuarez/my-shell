@@ -1,6 +1,10 @@
 #ifndef COMMANDS_H
 #define COMMANDS_H
 
+#include <stdlib.h>
+#include <string.h>
+#include <ncurses.h>
+#include <time.h>
 #include <ncurses.h>
 
 // Globals
