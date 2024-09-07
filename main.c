@@ -4,14 +4,11 @@
 #include <stdlib.h>
 #include "commands.h"
 
-#define SHELL_AND_WD_MAX_LENGTH 256
-#define MAX_INPUT 256
+#define SHELL_AND_WD_MAX_LENGTH 128
+#define LINE_LENGTH 512
+#define MAX_INPUT 200
 #define MAX_HISTORY 32
 #define KEY_ESC 27
-
-// Global variables
-WINDOW *output_win;
-size_t line;
 
 // Structure to hold a command
 typedef struct
@@ -30,7 +27,18 @@ typedef struct
 // Prototypes
 void init_ncurses();
 void add_to_history(History *history, const Command *command);
+void add_to_scroll_history(Scroll_History *history, char *data);
 char *get_shell_prompt();
+inline void adjust_window();
+bool shell_at_bottom();
+void handle_command(char *command, int *history_index, int *index, int *scroll_offset);
+void redraw_output(Scroll_History *history, int offset);
+void handle_scroll_down_completely(int *offset, char *prompt, char *data, int index);
+
+// Global variables
+WINDOW *output_win;
+size_t line;
+Scroll_History scroll_his = {.length = 0};
 
 int main(void)
 {
@@ -40,10 +48,11 @@ int main(void)
     // Start at the user directory
     chdir("/home/cj-suarez");
 
-    History history = {0};
+    History history = {0};      // Initialize command history
     Command input_buffer = {0}; // Initialize the input buffer
     int ch;
     int history_index = -1; // Index for history navigation
+    int scroll_offset = -1; // Index for scroll navigation
 
     while (1)
     {
@@ -55,6 +64,7 @@ int main(void)
         int index = 0;
         input_buffer.length = 1;
 
+        /* Handle input*/
         while ((ch = wgetch(output_win)) != '\n') // Read until Enter key
         {
             switch (ch)
@@ -65,6 +75,7 @@ int main(void)
                 return 0;
 
             case KEY_BACKSPACE:
+                handle_scroll_down_completely(&scroll_offset, prompt, input_buffer.data, index);
                 // Delete a character
                 if (index > 0)
                 {
@@ -78,17 +89,18 @@ int main(void)
                 break;
 
             case KEY_UP:
+                handle_scroll_down_completely(&scroll_offset, prompt, input_buffer.data, index);
                 // Navigate through the command history (move back)
                 if (history.length > 0 && history_index > 0)
                 {
                     history_index--;
-                    wmove(output_win, line, strlen(prompt));
-                    wclrtoeol(output_win); // Clear from cursor to the end of the line
-                    memset(input_buffer.data, 0, input_buffer.length);
-                    strcpy(input_buffer.data, history.commands[history_index].data);
-                    index = input_buffer.length = strlen(input_buffer.data);
-                    mvwprintw(output_win, line, strlen(prompt), "%s", input_buffer.data);
-                    wmove(output_win, line, strlen(prompt) + index);
+                    wmove(output_win, line, strlen(prompt));                              // Move the cursor to right after the shell prompt
+                    wclrtoeol(output_win);                                                // Clear from cursor to the end of the line
+                    memset(input_buffer.data, 0, input_buffer.length);                    // Reset the input buffer data
+                    strcpy(input_buffer.data, history.commands[history_index].data);      // Copy the history data into the input buffer
+                    index = input_buffer.length = strlen(input_buffer.data);              // Set index and input_buffer.length
+                    mvwprintw(output_win, line, strlen(prompt), "%s", input_buffer.data); // Print the history command to the screen
+                    wmove(output_win, line, strlen(prompt) + index);                      // Move the cursor to the end of the command
                 }
                 else if (history.length > 0 && history_index == -1)
                 {
@@ -105,6 +117,7 @@ int main(void)
                 break;
 
             case KEY_DOWN:
+                handle_scroll_down_completely(&scroll_offset, prompt, input_buffer.data, index);
                 // Navigate through the command history (move forward)
                 if (history.length > 0 && history_index < history.length - 1)
                 {
@@ -120,97 +133,88 @@ int main(void)
                 break;
 
             case KEY_LEFT:
+                handle_scroll_down_completely(&scroll_offset, prompt, input_buffer.data, index);
                 // Move cursor left
                 if (index > 0)
-                {
-                    index--;
-                    wmove(output_win, line, strlen(prompt) + index);
-                }
+                    wmove(output_win, line, strlen(prompt) + --index);
                 break;
 
             case KEY_RIGHT:
+                handle_scroll_down_completely(&scroll_offset, prompt, input_buffer.data, index);
                 // Move cursor right
                 if (index < input_buffer.length)
-                {
-                    index++;
-                    wmove(output_win, line, strlen(prompt) + index);
-                }
+                    wmove(output_win, line, strlen(prompt) + ++index);
                 break;
 
             case KEY_ESC:
+                handle_scroll_down_completely(&scroll_offset, prompt, input_buffer.data, index);
                 // Clear the line
                 index = 0;
                 wmove(output_win, line, strlen(prompt));
+                memset(input_buffer.data, 0, input_buffer.length);
                 wclrtoeol(output_win);
                 break;
 
-            default:
-                // Handle printable characters
-                if (ch >= 32 && ch <= 126 && index < MAX_INPUT - 1)
+            case KEY_SF: // Scroll up
+                if (shell_at_bottom() && scroll_his.length - LINES - 2 - scroll_offset > 0)
                 {
-                    history_index = -1;
-                    input_buffer.data[index++] = ch;
+                    scroll_offset++;                           // Increase offset when scrolling up
+                    redraw_output(&scroll_his, scroll_offset); // Redraw with new offset
+                }
+                break;
+
+            case KEY_SR: // Scroll down
+                if (scroll_offset > 0)
+                {
+                    scroll_offset--;                           // Decrease offset when scrolling down
+                    redraw_output(&scroll_his, scroll_offset); // Redraw with new offset
+                }
+                else if (scroll_offset == 0)
+                {
+                    redraw_output(&scroll_his, scroll_offset);                                 // Redraw with new offset
+                    mvwprintw(output_win, LINES - 2, 0, "%s", prompt);                         // Redraw prompt on the last visible line
+                    mvwprintw(output_win, LINES - 2, strlen(prompt), "%s", input_buffer.data); // Redraw current input line
+                    wmove(output_win, LINES - 2, strlen(prompt) + index);                      // Move cursor to the end of input line
+                }
+                break;
+
+            default:
+                if (ch >= 32 && ch <= 126 && index < LINE_LENGTH - 1) // Printable characters
+                {
+                    handle_scroll_down_completely(&scroll_offset, prompt, input_buffer.data, index);
+
+                    history_index = -1;              // Reset history navigation
+                    input_buffer.data[index++] = ch; // Add the character to input buffer
                     input_buffer.length++;
-                    mvwaddch(output_win, line, strlen(prompt) + index - 1, ch);
+
+                    mvwaddch(output_win, line, strlen(prompt) + index - 1, ch); // Display the typed character
+                    wmove(output_win, line, strlen(prompt) + index);            // Move cursor after typed character
                 }
                 break;
             }
+            wrefresh(output_win);
         }
+        /* Adding line to history */
+        char buff[LINE_LENGTH];                   // Create buffer to store line data
+        strcpy(buff, prompt);                     // Copy the shell prompt into buffer
+        strcat(buff, input_buffer.data);          // Append the command into buffer
+        add_to_scroll_history(&scroll_his, buff); // Add the line into scroll history
 
-        free(prompt);                               // Free the memory that was allocated by get_shell_prompt()
-        input_buffer.data[input_buffer.length] = 0; // Make sure that the input_buffer ends with a 0
-        if (input_buffer.data[0])                   // Add to history only if there is input
+        free(prompt); // Free the memory that was allocated by get_shell_prompt()
+
+        /* Adding comamnd to history */
+        if (input_buffer.data[0]) // Add to history only if there is input
         {
             add_to_history(&history, &input_buffer);
             history_index = history.length; // Set to end of history
         }
 
-        // Process command (similar to original code)
-        char *token = strtok(input_buffer.data, " ");
-        if (token)
-        {
-            if (strcmp("about", token) == 0)
-            {
-                execute_about();
-            }
-            else if (strcmp("greet", token) == 0)
-            {
-                execute_greet(strtok(NULL, ""));
-            }
-            else if (strcmp("clear", token) == 0)
-            {
-                execute_clear();
-            }
-            else if (strcmp("echo", token) == 0)
-            {
-                execute_echo(strtok(NULL, ""));
-            }
-            else if (strcmp("time", token) == 0)
-            {
-                execute_time();
-            }
-            else if (strcmp("cd", token) == 0)
-            {
-                chdir(strtok(NULL, " "));
-            }
-            else if (strcmp("pwd", token) == 0)
-            {
-                char *cwd = getcwd(NULL, 0);
-                mvwprintw(output_win, ++line, 0, "%s", cwd);
-                free(cwd); // Free memory allocated by getcwd
-            }
-            else if (strcmp("ls", token) == 0)
-            {
-                execute_ls(input_buffer.data);
-            }
-            else
-            {
-                mvwprintw(output_win, ++line, 0, "`%s` command is unknown! Type `help` for a list of valid commands.", token);
-            }
-        }
+        handle_command(input_buffer.data, &history_index, &index, &scroll_offset);
 
-        line++;
-        wrefresh(output_win); // Refresh window to show updates
+        memset(input_buffer.data, 0, input_buffer.length);
+        input_buffer.length = 0;
+        adjust_window();
+        wrefresh(output_win);
     }
 }
 
@@ -264,12 +268,123 @@ char *get_shell_prompt()
 {
     char *cwd = getcwd(NULL, 0);
     if (cwd == NULL)
-    {
         return strdup("my-shell $ "); // fallback in case getcwd fails
-    }
 
     char *prompt = malloc(SHELL_AND_WD_MAX_LENGTH);
     snprintf(prompt, SHELL_AND_WD_MAX_LENGTH, "my-shell %s$ ", cwd);
     free(cwd); // free the memory allocated by getcwd
     return prompt;
 }
+
+// Used whenever something needs to be printed on a new line
+inline void adjust_window()
+{
+    if (line >= LINES - 2) // Ensure correct line adjustment
+    {
+        wscrl(output_win, 1);
+        line = LINES - 2; // Keep cursor on the last visible line
+    }
+    else
+    {
+        line++;
+    }
+}
+
+void add_to_scroll_history(Scroll_History *history, char *data)
+{
+    if (history->length < MAX_SCROLLBACK)
+        // Add new command to history
+        strcpy(history->data[history->length++], data);
+    else
+    {
+        // Shift commands to make room for the new one
+        for (size_t i = 0; i < MAX_SCROLLBACK - 1; i++)
+        {
+            strcpy(history->data[i], history->data[i + 1]);
+        }
+        strcpy(history->data[MAX_SCROLLBACK - 1], data);
+    }
+}
+
+void redraw_output(Scroll_History *history, int offset)
+{
+    werase(output_win); // Clear the window
+
+    size_t l = 0;
+    int start = history->length - LINES - offset + 2;
+    for (int i = start; i < history->length; i++)
+    {
+        mvwprintw(output_win, l++, 0, "%s", history->data[i]);
+    }
+}
+
+// Process command
+void handle_command(char *command, int *history_index, int *index, int *scroll_offset)
+{
+    char *token = strtok(command, " ");
+    if (token)
+    {
+        if (strcmp("about", token) == 0)
+        {
+            execute_about();
+        }
+        else if (strcmp("greet", token) == 0)
+        {
+            execute_greet(strtok(NULL, ""));
+        }
+        else if (strcmp("clear", token) == 0)
+        {
+            *history_index = -1;
+            *index = 0;
+            *scroll_offset = -1;
+            execute_clear();
+        }
+        else if (strcmp("echo", token) == 0)
+        {
+            execute_echo(strtok(NULL, ""));
+        }
+        else if (strcmp("time", token) == 0)
+        {
+            execute_time();
+        }
+        else if (strcmp("cd", token) == 0)
+        {
+            chdir(strtok(NULL, " "));
+        }
+        else if (strcmp("pwd", token) == 0)
+        {
+            adjust_window();
+            char *cwd = getcwd(NULL, 0);
+            mvwprintw(output_win, line, 0, "%s", cwd);
+            free(cwd); // Free memory allocated by getcwd
+        }
+        else if (strcmp("ls", token) == 0)
+        {
+            execute_ls(command);
+        }
+        else
+        {
+            adjust_window();
+            unsigned int len = strlen(token) + strlen("`` command is unknown! Type `help` for a list of valid commands.");
+            char *error_msg = malloc(len);
+            snprintf(error_msg, len, "`%s` command is unknown! Type `help` for a list of valid commands.", token);
+            mvwprintw(output_win, line, 0, "%s", error_msg);
+            add_to_scroll_history(&scroll_his, error_msg);
+            free(error_msg);
+        }
+    }
+}
+
+void handle_scroll_down_completely(int *offset, char *prompt, char *data, int index)
+{
+    if (*offset >= 0)
+    {
+        *offset = 0;                                                  // Reset scroll offset
+        redraw_output(&scroll_his, *offset);                          // Redraw output with new offset
+        mvwprintw(output_win, LINES - 2, 0, "%s", prompt);            // Redraw prompt on the last visible line
+        mvwprintw(output_win, LINES - 2, strlen(prompt), "%s", data); // Redraw current input line
+        wmove(output_win, LINES - 2, strlen(prompt) + index);         // Move cursor to end of input line
+    }
+}
+
+bool shell_at_bottom() { return line == LINES - 2; }
