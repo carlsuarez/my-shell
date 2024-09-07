@@ -8,6 +8,7 @@ void execute_about()
 
 void execute_greet(char *name)
 {
+
     mvwprintw(output_win, ++line, 0, "Hello, %s", name ? name : "John Doe (please provide a name after `greet`)");
     wrefresh(output_win);
 }
@@ -19,15 +20,15 @@ void execute_clear()
     wrefresh(output_win); // Refresh to clear the screen
 }
 
-void execute_echo(char *args)
+void execute_echo(char *message)
 {
-    if (!args)
+    if (!message)
     {
         mvwprintw(output_win, ++line, 0, "*cricket noises*");
     }
     else
     {
-        mvwprintw(output_win, ++line, 0, "%s", args);
+        mvwprintw(output_win, ++line, 0, "%s", message);
     }
     wrefresh(output_win);
 }
@@ -59,4 +60,25 @@ void execute_time()
     strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", local_time);
     mvwprintw(output_win, ++line, 0, "Current date/time: %s", time_str);
     wrefresh(output_win);
+}
+
+void execute_ls(char *input)
+{
+    // Open a pipe to capture the output of `ls` with arguments
+    FILE *fp = popen(input, "r");
+    if (fp == NULL)
+    {
+        perror("popen failed");
+        return;
+    }
+
+    // Read and print the output of the `ls` command to the ncurses window
+    char buffer[BUFFER_SIZE];
+    while (fgets(buffer, sizeof(buffer), fp) != NULL)
+    {
+        mvwprintw(output_win, ++line, 0, "%s", buffer);
+    }
+
+    pclose(fp);
+    wrefresh(output_win); // Refresh window to show updates
 }
