@@ -10,6 +10,7 @@
 #define MAX_INPUT 200
 #define MAX_HISTORY 32
 #define KEY_ESC 27
+#define NUM_COMMANDS 15
 
 // Structure to hold a command
 typedef struct
@@ -384,9 +385,8 @@ bool shell_at_bottom(void) { return line == LINES - 2; }
 
 bool check_bins(char *token, char *command)
 {
-#define SIZE 7
-    char *bins[SIZE] = {"ls", "mv", "mkdir", "cp", "rm", "rmdir", "touch"};
-    for (int i = 0; i < SIZE; i++)
+    char *bins[NUM_COMMANDS] = {"ls", "mv", "mkdir", "cp", "rm", "rmdir", "touch", "cat", "find", "grep", "gzip", "gunzip", "tar"};
+    for (int i = 0; i < NUM_COMMANDS; i++)
         if (strcmp(token, bins[i]) == 0)
             return true;
     return false;
