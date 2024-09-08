@@ -17,11 +17,15 @@ void execute_greet(char *name)
     wrefresh(output_win);
 }
 
-void execute_clear()
+void execute_clear(int *history_index, int *index, int *scroll_offset)
 {
-    line = -1; // Reset the line to the top
+    line = -1;           // Reset the line to the top
+    *history_index = -1; // Reset history index
+    *index = 0;          // Reset index
+    *scroll_offset = -1; // Reset scroll_offset
     for (int i = 0; i < MAX_SCROLLBACK; i++)
         memset(scroll_his.data[i], 0, LINE_LENGTH);
+    scroll_his.length = 0;
     werase(output_win);   // Clear the window
     wrefresh(output_win); // Refresh to clear the screen
 }
@@ -77,30 +81,73 @@ void execute_time()
     add_to_scroll_history(&scroll_his, buff);
 }
 
-void execute_ls(char *input)
+void execute_bin(char *input)
 {
-    // Open a pipe to capture the output of `ls` with arguments
-    FILE *fp = popen(input, "r");
-    if (fp == NULL)
+    // Tokenize the input string into command and arguments
+    char *args[MAX_ARGS];
+    int i = 0;
+    char *token = strtok(input, " \t\n");
+
+    while (token && i < MAX_ARGS - 1)
     {
-        perror("popen failed");
+        args[i++] = token;
+        token = strtok(NULL, " \t\n");
+    }
+    args[i] = NULL;
+
+    // Create pipe
+    int pipefd[2];
+    if (pipe(pipefd) == -1)
+    {
+        adjust_window();
+        mvwprintw(output_win, line, 0, "Error: failed to create pipe.");
         return;
     }
 
-    // Read and print the output of the `ls` command to the ncurses window
-    char buffer[BUFFER_SIZE];
-    while (fgets(buffer, sizeof(buffer), fp) != NULL)
+    pid_t pid = fork();
+    if (pid < 0) // Fork failed
     {
-        // Strip the newline character, if present
-        size_t len = strlen(buffer);
-        if (len > 0 && buffer[len - 1] == '\n')
-            buffer[len - 1] = '\0'; // Replace newline with null terminator
-
         adjust_window();
-        mvwprintw(output_win, line, 0, "%s", buffer);
-        add_to_scroll_history(&scroll_his, buffer);
+        mvwprintw(output_win, line, 0, "Error: fork failed.");
+        return;
     }
+    else if (pid == 0) // Child process
+    {
+        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[0]);
+        close(pipefd[1]);
 
-    pclose(fp);
-    wrefresh(output_win); // Refresh window to show updates
+        execvp(args[0], args);
+        _exit(127); // Exit child if execvp fails
+    }
+    else // Parent process
+    {
+        close(pipefd[1]); // Close write end in parent
+        char buffer[BUFFER_SIZE];
+        FILE *fp = fdopen(pipefd[0], "r");
+
+        if (fp != NULL)
+        {
+            while (fgets(buffer, sizeof(buffer), fp))
+            {
+                // Remove trailing newline if it exists
+                size_t len = strlen(buffer);
+                if (len > 0 && buffer[len - 1] == '\n')
+                {
+                    buffer[len - 1] = '\0';
+                }
+
+                adjust_window();
+                mvwprintw(output_win, line, 0, "%s", buffer);
+                add_to_scroll_history(&scroll_his, buffer);
+                wrefresh(output_win);
+            }
+            fclose(fp);
+        }
+        close(pipefd[0]);
+
+        // Wait for child process to finish
+        waitpid(pid, NULL, 0);
+    }
 }

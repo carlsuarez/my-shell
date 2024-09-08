@@ -26,15 +26,16 @@ typedef struct
 } History;
 
 // Prototypes
-void init_ncurses();
+void init_ncurses(void);
 void add_to_history(History *history, const Command *command);
 void add_to_scroll_history(Scroll_History *history, char *data);
-char *get_shell_prompt();
-inline void adjust_window();
-bool shell_at_bottom();
+char *get_shell_prompt(void);
+inline void adjust_window(void);
+bool shell_at_bottom(void);
 void handle_command(char *command, int *history_index, int *index, int *scroll_offset);
 void redraw_output(Scroll_History *history, int offset);
 void handle_scroll_reset(int *offset, char *prompt, char *data, int index);
+bool check_bins(char *token, char *command);
 
 // Global variables
 WINDOW *output_win;
@@ -215,11 +216,10 @@ int main(void)
         input_buffer.length = 0;
         adjust_window();
         wrefresh(output_win);
-        printf("%i", line);
     }
 }
 
-void init_ncurses()
+void init_ncurses(void)
 {
     // Initialize ncurses
     initscr();
@@ -265,7 +265,7 @@ void add_to_history(History *history, const Command *command)
     }
 }
 
-char *get_shell_prompt()
+char *get_shell_prompt(void)
 {
     char *cwd = getcwd(NULL, 0);
     if (cwd == NULL)
@@ -277,7 +277,7 @@ char *get_shell_prompt()
     return prompt;
 }
 
-inline void adjust_window()
+inline void adjust_window(void)
 {
     if (line >= LINES - 2) // Check if we need to scroll
     {
@@ -321,32 +321,23 @@ void redraw_output(Scroll_History *history, int offset)
 // Process command
 void handle_command(char *command, int *history_index, int *index, int *scroll_offset)
 {
-    char *token = strtok(command, " ");
+    // Make a copy of the original command so strtok doesn't modify it
+    char command_copy[strlen(command) + 1];
+    strcpy(command_copy, command);
+
+    char *token = strtok(command_copy, " ");
     if (token)
     {
         if (strcmp("about", token) == 0)
-        {
             execute_about();
-        }
         else if (strcmp("greet", token) == 0)
-        {
             execute_greet(strtok(NULL, ""));
-        }
         else if (strcmp("clear", token) == 0)
-        {
-            *history_index = -1;
-            *index = 0;
-            *scroll_offset = -1;
-            execute_clear();
-        }
+            execute_clear(history_index, index, scroll_offset);
         else if (strcmp("echo", token) == 0)
-        {
             execute_echo(strtok(NULL, ""));
-        }
         else if (strcmp("time", token) == 0)
-        {
             execute_time();
-        }
         else if (strcmp("cd", token) == 0)
         {
             if (chdir(strtok(NULL, " ")) == -1)
@@ -362,10 +353,8 @@ void handle_command(char *command, int *history_index, int *index, int *scroll_o
             mvwprintw(output_win, line, 0, "%s", cwd);
             free(cwd); // Free memory allocated by getcwd
         }
-        else if (strcmp("ls", token) == 0)
-        {
-            execute_ls(command);
-        }
+        else if (check_bins(token, command))
+            execute_bin(command); // Pass original command here
         else
         {
             adjust_window();
@@ -391,4 +380,14 @@ void handle_scroll_reset(int *offset, char *prompt, char *data, int index)
     }
 }
 
-bool shell_at_bottom() { return line == LINES - 2; }
+bool shell_at_bottom(void) { return line == LINES - 2; }
+
+bool check_bins(char *token, char *command)
+{
+#define SIZE 7
+    char *bins[SIZE] = {"ls", "mv", "mkdir", "cp", "rm", "rmdir", "touch"};
+    for (int i = 0; i < SIZE; i++)
+        if (strcmp(token, bins[i]) == 0)
+            return true;
+    return false;
+}
