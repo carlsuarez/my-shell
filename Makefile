@@ -26,9 +26,13 @@ $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# Run the executable
+run:
+	./$(EXEC)
+
 # Clean up compiled files
 clean:
 	rm -rf $(BUILD_DIR)
 
 # Phony targets (not files)
-.PHONY: all clean
+.PHONY: all clean run

@@ -19,9 +19,9 @@ void execute_greet(char *name)
 
 void execute_clear()
 {
-    line = 0; // Move to the top of the window
+    line = -1; // Reset the line to the top
     for (int i = 0; i < MAX_SCROLLBACK; i++)
-        memset(&scroll_his.data[i], 0, LINE_LENGTH);
+        memset(scroll_his.data[i], 0, LINE_LENGTH);
     werase(output_win);   // Clear the window
     wrefresh(output_win); // Refresh to clear the screen
 }

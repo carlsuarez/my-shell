@@ -37,7 +37,7 @@ void handle_scroll_down_completely(int *offset, char *prompt, char *data, int in
 
 // Global variables
 WINDOW *output_win;
-size_t line;
+int line;
 Scroll_History scroll_his = {.length = 0};
 
 int main(void)
@@ -48,8 +48,8 @@ int main(void)
     // Start at the user directory
     chdir("/home/cj-suarez");
 
-    History history = {0};      // Initialize command history
-    Command input_buffer = {0}; // Initialize the input buffer
+    History history = {.length = 0}; // Initialize command history
+    Command input_buffer = {0};      // Initialize the input buffer
     int ch;
     int history_index = -1; // Index for history navigation
     int scroll_offset = -1; // Index for scroll navigation
@@ -130,6 +130,15 @@ int main(void)
                     mvwprintw(output_win, line, strlen(prompt), "%s", input_buffer.data);
                     wmove(output_win, line, strlen(prompt) + index);
                 }
+                else if (history_index == history.length - 1)
+                {
+                    history_index = -1;
+                    index = 0;
+                    wmove(output_win, line, strlen(prompt));
+                    wclrtoeol(output_win);
+                    memset(input_buffer.data, 0, input_buffer.length);
+                    mvwprintw(output_win, line, strlen(prompt), "%s", input_buffer.data);
+                }
                 break;
 
             case KEY_LEFT:
@@ -155,15 +164,15 @@ int main(void)
                 wclrtoeol(output_win);
                 break;
 
-            case KEY_SF: // Scroll up
-                if (shell_at_bottom() && scroll_his.length - LINES - 2 - scroll_offset > 0)
+            case KEY_SR: // Scroll up
+                if (shell_at_bottom() && scroll_his.length - LINES - scroll_offset + 2 > 0)
                 {
                     scroll_offset++;                           // Increase offset when scrolling up
                     redraw_output(&scroll_his, scroll_offset); // Redraw with new offset
                 }
                 break;
 
-            case KEY_SR: // Scroll down
+            case KEY_SF: // Scroll down
                 if (scroll_offset > 0)
                 {
                     scroll_offset--;                           // Decrease offset when scrolling down
@@ -215,6 +224,7 @@ int main(void)
         input_buffer.length = 0;
         adjust_window();
         wrefresh(output_win);
+        printf("%i", line);
     }
 }
 
@@ -276,10 +286,9 @@ char *get_shell_prompt()
     return prompt;
 }
 
-// Used whenever something needs to be printed on a new line
 inline void adjust_window()
 {
-    if (line >= LINES - 2) // Ensure correct line adjustment
+    if (line >= LINES - 2) // Check if we need to scroll
     {
         wscrl(output_win, 1);
         line = LINES - 2; // Keep cursor on the last visible line

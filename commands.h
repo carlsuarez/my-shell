@@ -12,7 +12,7 @@
 
 // Globals
 extern WINDOW *output_win;
-extern size_t line;
+extern int line;
 
 // Structure to hold every line printed
 typedef struct
