@@ -10,7 +10,7 @@
 #define MAX_INPUT 200
 #define MAX_HISTORY 32
 #define KEY_ESC 27
-#define NUM_COMMANDS 15
+#define NUM_COMMANDS 13
 
 // Structure to hold a command
 typedef struct
