@@ -19,7 +19,7 @@ typedef struct
 {
     char data[MAX_SCROLLBACK][LINE_LENGTH];
     size_t length;
-} Scroll_History; // Renamed struct to avoid conflict
+} Scroll_History;
 
 extern Scroll_History scroll_his; // Global variable
 
