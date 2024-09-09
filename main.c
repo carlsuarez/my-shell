@@ -10,7 +10,7 @@
 #define MAX_INPUT 200
 #define MAX_HISTORY 32
 #define KEY_ESC 27
-#define NUM_COMMANDS 13
+#define NUM_COMMANDS 14
 
 // Structure to hold a command
 typedef struct
@@ -37,6 +37,7 @@ void handle_command(char *command, int *history_index, int *index, int *scroll_o
 void redraw_output(Scroll_History *history, int offset);
 void handle_scroll_reset(int *offset, char *prompt, char *data, int index);
 bool check_bins(char *token, char *command);
+char *get_home(void);
 
 // Global variables
 WINDOW *output_win;
@@ -272,10 +273,55 @@ char *get_shell_prompt(void)
     if (cwd == NULL)
         return strdup("my-shell $ "); // fallback in case getcwd fails
 
+    char *hd = get_home(); // Get the user's home directory
+    bool hd_in_cwd = true;
+
+    // Check if the home directory path is a prefix of cwd
+    if (strlen(cwd) >= strlen(hd))
+    {
+        for (int i = 0; hd[i] != 0; i++)
+        {
+            if (hd[i] != cwd[i])
+            {
+                hd_in_cwd = false;
+                break;
+            }
+        }
+
+        // If the home directory is a prefix, replace it with "~"
+        if (hd_in_cwd)
+        {
+            // Allocate memory for the prompt and replace /home/{$USER} with ~
+            size_t offset = strlen(hd);
+            char *shortened_cwd = cwd + offset; // Get the part after home directory
+            char *prompt = malloc(SHELL_AND_WD_MAX_LENGTH);
+            snprintf(prompt, SHELL_AND_WD_MAX_LENGTH, "my-shell ~%s$ ", shortened_cwd);
+            free(cwd);
+            free(hd);
+            return prompt;
+        }
+    }
+
+    // If the cwd is not in home, just display the full cwd
     char *prompt = malloc(SHELL_AND_WD_MAX_LENGTH);
     snprintf(prompt, SHELL_AND_WD_MAX_LENGTH, "my-shell %s$ ", cwd);
-    free(cwd); // free the memory allocated by getcwd
+    free(cwd);
+    free(hd);
     return prompt;
+}
+
+char *get_home(void)
+{
+    char *user = getenv("USER");
+    if (!user)
+        return strdup("/home/"); // Fallback if getenv fails
+
+    // Allocate memory for home directory and construct it
+    char *home = malloc(strlen("/home/") + strlen(user) + 1);
+    strcpy(home, "/home/");
+    strcat(home, user);
+
+    return home;
 }
 
 inline void adjust_window(void)
@@ -385,7 +431,7 @@ bool shell_at_bottom(void) { return line == LINES - 2; }
 
 bool check_bins(char *token, char *command)
 {
-    char *bins[NUM_COMMANDS] = {"ls", "mv", "mkdir", "cp", "rm", "rmdir", "touch", "cat", "find", "grep", "gzip", "gunzip", "tar"};
+    char *bins[NUM_COMMANDS] = {"ls", "mv", "mkdir", "cp", "rm", "rmdir", "touch", "cat", "find", "grep", "gzip", "gunzip", "tar", "whoami"};
     for (int i = 0; i < NUM_COMMANDS; i++)
         if (strcmp(token, bins[i]) == 0)
             return true;

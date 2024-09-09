@@ -141,7 +141,6 @@ void execute_bin(char *input)
                 adjust_window();
                 mvwprintw(output_win, line, 0, "%s", buffer);
                 add_to_scroll_history(&scroll_his, buffer);
-                wrefresh(output_win);
             }
             fclose(fp);
         }
